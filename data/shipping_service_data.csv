@@ -1,0 +1,8 @@
+﻿delivery_service,service_type,days_in_transit,miles_covered_per_day,cost_per_package
+fedex,standard,7,5,10
+fedex,express,2,40,15
+fedex,air,1,100,30
+ups,standard,6,6,12
+ups,express,2,35,14
+usps,standard,10,5,6
+usps,express,4,20,10

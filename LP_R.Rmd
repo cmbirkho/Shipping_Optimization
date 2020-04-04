@@ -1,0 +1,153 @@
+---
+title: "Shipping Optimization in R"
+author: "Connor Birkhold"
+date: "4/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+# clear workspace
+rm(list = ls())
+```
+
+```{r message=FALSE, warning=FALSE}
+library(tidyverse)
+library(data.table)
+library(lpSolveAPI)
+```
+
+##### Load the data
+```{r}
+orderData <- fread("./data/order_data.csv")
+serviceData <- fread("./data/shipping_service_data.csv")
+
+orderData$order_id <- as.factor(orderData$order_id)
+serviceData$delivery_service <- as.factor(serviceData$delivery_service)
+
+```
+
+#### Order Data
+```{r}
+head(orderData)
+str(orderData)
+```
+
+
+#### Service Data
+```{r}
+head(serviceData)
+str(serviceData)
+```
+
+#### Add features
+* Adding a `days_to_deliver` feature to the orderData to communicate how many days we have to deliver the order
+* Adding a `package_cnt` variable to the orderData to identify number of packages. For now each order is assumed to be shipped in one package
+* Adding a `total_miles` feature to serviceData to communicate how far a distance the service can cover
+```{r}
+# order data
+orderData <- orderData[,
+                       `:=`(date_ordered = as.Date(date_ordered, "%m/%d/%Y"),
+                            promised_delivery_date = 
+                                as.Date(promised_delivery_date, "%m/%d/%Y"))]
+
+orderData <- orderData[, days_to_deliver := difftime(promised_delivery_date, date_ordered,
+                                                     units = 'days')]
+
+orderData$days_to_deliver <- as.numeric(orderData$days_to_deliver)
+
+orderData$package_cnt <- 1
+
+# service data
+serviceData <- serviceData[, total_miles := days_in_transit * miles_covered_per_day]
+```
+
+####
+```{r}
+
+
+shipping.opt <- function(order_data, service_data, carrier){
+    
+    # set up a matrix to output results into
+    colCnt <- nrow(unique(serviceData[serviceData$delivery_service == carrier,
+                                      "service_type"]))
+    
+    result_matrix <- matrix(0, nrow = nrow(orderData),
+                            ncol = colCnt)
+    
+    row.names(result_matrix) <- orderData$order_id
+    
+    servTypes <- unique(serviceData[serviceData$delivery_service == carrier, 
+                            "service_type"])
+    
+    colnames(result_matrix) <- c(servTypes$service_type)
+    Cost <- matrix(0, nrow = nrow(orderData), ncol = 1)
+    colnames(Cost) <- "Cost"
+    result_matrix <- cbind(result_matrix, Cost)
+        
+    # for loop to solve optimization problem
+        for(i in 1:nrow(order_data)){
+            
+            # start with 0 constraints and 3 decision variable
+            lprec <- make.lp(nrow = 0, 
+                             ncol = nrow(service_data[service_data$delivery_service == carrier,
+                                                      "cost_per_package"]))
+            
+            # select minimize
+            lp.control(lprec, sense = "min")
+            
+            # set type to integer
+            set.type(lprec, 
+                     columns = 1:nrow(service_data[service_data$delivery_service == carrier, 
+                                                   "cost_per_package"]),
+                     type = "integer")
+            
+            # set objective function coefficients
+            coef <- service_data[service_data$delivery_service == carrier,
+                                 "cost_per_package"]
+            set.objfn(lprec, 
+                      obj = coef$cost_per_package)
+            
+            # days_in_transit must be less than or equal to days_to_deliver
+            daysToDel <- service_data[service_data$delivery_service == carrier,
+                                               "days_in_transit"]
+            add.constraint(lprec, 
+                           xt = daysToDel$days_in_transit,
+                           type = "<=", rhs = c(order_data[i, "days_to_deliver"]))
+            
+            # must select one service
+            selectOne <- rep(1, length(1:length(daysToDel$days_in_transit)))
+            
+            add.constraint(lprec, xt = selectOne,
+                          type = "=", rhs = 1)
+            
+            # solve the lp
+            solve(lprec)
+            
+            # store results in result_matrix
+            matColcnt <- ncol(result_matrix) - 1
+            result_matrix[i, 1:matColcnt] <- get.variables(lprec)
+            result_matrix[i, "Cost"] <- get.objective(lprec)
+        }
+    
+    return(result_matrix)
+    
+}
+        
+fedExCost <- shipping.opt(order_data = orderData,
+                          service_data = serviceData,
+                          carrier = "fedex")
+
+upsCost <- shipping.opt(order_data = orderData,
+                          service_data = serviceData,
+                          carrier = "ups")
+
+uspsCost <- shipping.opt(order_data = orderData,
+                          service_data = serviceData,
+                          carrier = "usps")
+
+```
+

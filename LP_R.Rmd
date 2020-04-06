@@ -85,6 +85,7 @@ str(orderData)
 * In the `shipping.opt.carrier` function we have the following constraints:
     * Must choose one service (i.e. can't choose a mix of services for one order)
     * `days_in_transit` must be less than or equal to `days_to_deliver`
+    * `total_miles` must be greater than or equal to `distance_to_destination_mi`
 ```{r}
 shipping.opt.carrier <- function(order_data, service_data, carrier){
     
@@ -136,6 +137,13 @@ shipping.opt.carrier <- function(order_data, service_data, carrier){
             add.constraint(lprec, 
                            xt = daysToDel$days_in_transit,
                            type = "<=", rhs = c(order_data[i, "days_to_deliver"]))
+            
+            # total_miles must be greater than or equal to distance_to_destination_mi
+            totalMiles <- service_data[service_data$delivery_service == carrier,
+                                               "total_miles"]
+            add.constraint(lprec, 
+                           xt = totalMiles$total_miles,
+                           type = ">=", rhs = c(order_data[i, "distance_to_destination_mi"]))
             
             # must select one service
             selectOne <- rep(1, length(1:length(daysToDel$days_in_transit)))

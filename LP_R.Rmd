@@ -25,9 +25,10 @@ library(lpSolveAPI)
 orderData <- fread("./data/order_data.csv")
 serviceData <- fread("./data/shipping_service_data.csv")
 
+# complete some initial restructuring of columns
 orderData$order_id <- as.factor(orderData$order_id)
 serviceData$delivery_service <- as.factor(serviceData$delivery_service)
-serviceData$cost_per_package <- as.numeric(serviceData$cost_per_package)
+serviceData$cost_per_package <- as.integer(serviceData$cost_per_package)
 
 ```
 
@@ -104,6 +105,7 @@ shipping.opt.carrier <- function(order_data, service_data, carrier){
     colnames(Cost) <- "Cost"
     result_matrix <- cbind(result_matrix, Cost)
     
+    
         
     # for loop to solve optimization problem
         for(i in 1:nrow(order_data)){
@@ -160,15 +162,16 @@ shipping.opt.carrier <- function(order_data, service_data, carrier){
     # a large scientific number. Not sure the cause of this, but below code
     # is a temporary fix to turn these large numbers into NAs. 
     # Ignore warning message about NAs b/c thats what we want
-    df$Cost <- suppressWarnings(as.integer(df$Cost)) 
+    # round() needs to be present cauase as.integer will round down
+    df$Cost <- suppressWarnings(as.integer(round(df$Cost)))
     
     # Using data.table for melt function to create tidy dataset
     df$Cost <- as.character(df$Cost) # convert to character for melt
     setDT(df) # convert from dataframe to datatable
     
     # suppress messages on melt (no issues)
-    df <- suppressWarnings(melt(df, 
-                                variable.name = "service_type", 
+    df <- suppressWarnings(melt(df,
+                                variable.name = "service_type",
                                 value.name = "ind"))
     df <- df[ind == 1, ] # filter
     df$Cost <- as.numeric(df$Cost)

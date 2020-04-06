@@ -27,6 +27,7 @@ serviceData <- fread("./data/shipping_service_data.csv")
 
 orderData$order_id <- as.factor(orderData$order_id)
 serviceData$delivery_service <- as.factor(serviceData$delivery_service)
+serviceData$cost_per_package <- as.numeric(serviceData$cost_per_package)
 
 ```
 
@@ -43,7 +44,7 @@ head(serviceData)
 str(serviceData)
 ```
 
-#### Add features
+#### Add Features
 * Adding a `days_to_deliver` feature to the orderData to communicate how many days we have to deliver the order
 * Adding a `package_cnt` variable to the orderData to identify number of packages. For now each order is assumed to be shipped in one package
 * Adding a `total_miles` feature to serviceData to communicate how far a distance the service can cover
@@ -65,28 +66,44 @@ orderData$package_cnt <- 1
 serviceData <- serviceData[, total_miles := days_in_transit * miles_covered_per_day]
 ```
 
-####
+#### Service Data
 ```{r}
+head(serviceData)
+str(serviceData)
+```
+
+#### Order Data
+```{r}
+head(orderData)
+str(orderData)
+```
 
 
-shipping.opt <- function(order_data, service_data, carrier){
+#### Optimize Shipping Service by Carrier
+* In this function we are breaking down serviceData by each carrier and using linear programming to choose the optimal shipping service per the order per the carrier. In the next function we will compare all the optimal shipping service options for each order and choose the best service per the order based on any additional constraints we set.
+* In the `shipping.opt.carrier` function we have the following constraints:
+    * Must choose one service (i.e. can't choose a mix of services for one order)
+    * `days_in_transit` must be less than or equal to `days_to_deliver`
+```{r}
+shipping.opt.carrier <- function(order_data, service_data, carrier){
     
     # set up a matrix to output results into
-    colCnt <- nrow(unique(serviceData[serviceData$delivery_service == carrier,
+    colCnt <- nrow(unique(service_data[service_data$delivery_service == carrier,
                                       "service_type"]))
     
-    result_matrix <- matrix(0, nrow = nrow(orderData),
+    result_matrix <- matrix(0, nrow = nrow(order_data),
                             ncol = colCnt)
     
-    row.names(result_matrix) <- orderData$order_id
+    row.names(result_matrix) <- order_data$order_id
     
-    servTypes <- unique(serviceData[serviceData$delivery_service == carrier, 
+    servTypes <- unique(service_data[service_data$delivery_service == carrier, 
                             "service_type"])
     
     colnames(result_matrix) <- c(servTypes$service_type)
-    Cost <- matrix(0, nrow = nrow(orderData), ncol = 1)
+    Cost <- matrix(0, nrow = nrow(order_data), ncol = 1)
     colnames(Cost) <- "Cost"
     result_matrix <- cbind(result_matrix, Cost)
+    
         
     # for loop to solve optimization problem
         for(i in 1:nrow(order_data)){
@@ -131,23 +148,114 @@ shipping.opt <- function(order_data, service_data, carrier){
             matColcnt <- ncol(result_matrix) - 1
             result_matrix[i, 1:matColcnt] <- get.variables(lprec)
             result_matrix[i, "Cost"] <- get.objective(lprec)
+            
         }
     
-    return(result_matrix)
+    # convert matrix to dataframe. Adding order_id and delivery_service column
+    df <- data.frame(order_id = row.names(result_matrix), 
+                     delivery_service = carrier,
+                     result_matrix)
+    
+    # if lpsolve can't find a solution that meets all constraints it inputs
+    # a large scientific number. Not sure the cause of this, but below code
+    # is a temporary fix to turn these large numbers into NAs. 
+    # Ignore warning message about NAs b/c thats what we want
+    df$Cost <- suppressWarnings(as.integer(df$Cost)) 
+    
+    # Using data.table for melt function to create tidy dataset
+    df$Cost <- as.character(df$Cost) # convert to character for melt
+    setDT(df) # convert from dataframe to datatable
+    
+    # suppress messages on melt (no issues)
+    df <- suppressWarnings(melt(df, 
+                                variable.name = "service_type", 
+                                value.name = "ind"))
+    df <- df[ind == 1, ] # filter
+    df$Cost <- as.numeric(df$Cost)
+    df <- df[, c("order_id", "delivery_service", "service_type", "Cost")]
+    
+    
+    # returns a data.table/data.frame
+    return(df)
     
 }
         
-fedExCost <- shipping.opt(order_data = orderData,
+fedExCost <- shipping.opt.carrier(order_data = orderData,
                           service_data = serviceData,
                           carrier = "fedex")
 
-upsCost <- shipping.opt(order_data = orderData,
+upsCost <- shipping.opt.carrier(order_data = orderData,
                           service_data = serviceData,
                           carrier = "ups")
 
-uspsCost <- shipping.opt(order_data = orderData,
+uspsCost <- shipping.opt.carrier(order_data = orderData,
                           service_data = serviceData,
                           carrier = "usps")
 
+```
+
+#### Data by Carrier
+```{r}
+head(fedExCost)
+str(fedExCost)
+
+head(upsCost)
+str(upsCost)
+
+head(uspsCost)
+str(uspsCost)
+```
+
+#### Choose Best Shipping Service Per Order
+* Here we want to combine all the delivery service tables previously created and select the best service per the order based on `Cost` and `delivery_service`.
+* We have assigned priority levels for the delivery services within the function. In real life this priority level would likely be based on contractual agreements (volumes, region commitments, etc.), but for this example let's keep it simple.
+```{r}
+
+select.Service <- function(carrier_one, carrier_two, carrier_three){
+    
+    # stack all carrier tables together
+    df <- suppressWarnings(bind_rows(carrier_one, 
+                                     carrier_two, 
+                                     carrier_three))
+    
+    # Adding a priority level for each carrier. This is simple logic to
+    # solve tie breakers. In real life this might be based on commitments we've
+    # made to carriers etc.
+    df <- df %>% 
+        mutate(carrier_rank = ifelse(delivery_service == 'fedex', 1,
+                                     ifelse(delivery_service == 'usps', 2,
+                                            ifelse(delivery_service == 'ups',
+                                                   3, NA))))
+    
+    # Apply rank and filtering based on rank by order_id
+    df <- df %>% 
+        arrange(order_id, Cost, carrier_rank) %>% 
+        group_by(order_id) %>% 
+        mutate(rank = 1:n()) %>% 
+        filter(rank == 1) %>% 
+        select("order_id", "delivery_service",
+               "service_type", "Cost") %>% 
+        rename(shipping_cost = Cost)
+    
+    
+    return(df)
+}
+
+servSelect <- select.Service(carrier_one = fedExCost,
+                             carrier_two = upsCost,
+                             carrier_three = uspsCost)
+
+
+```
+
+#### Add Shipping Info to Order Info
+* The carrier selection is complete and we can now attach that information to the order and send that data out into the next system where shipping labels would be created etc.
+```{r}
+
+orderData <- merge(orderData, servSelect, 
+                   by = 'order_id', all.x = TRUE)
+
+head(orderData)
+str(orderData)
 ```
 

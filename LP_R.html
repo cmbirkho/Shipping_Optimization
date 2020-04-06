@@ -529,6 +529,7 @@ serviceData &lt;- serviceData[, total_miles := days_in_transit * miles_covered_p
 <li>In this function we are breaking down serviceData by each carrier and using linear programming to choose the optimal shipping service per the order per the carrier. In the next function we will compare all the optimal shipping service options for each order and choose the best service per the order based on any additional constraints we set.</li>
 <li>In the <code>shipping.opt.carrier</code> function we have the following constraints:
 <ul>
+<li>Minimize <code>cost_per_package</code></li>
 <li>Must choose one service (i.e. can’t choose a mix of services for one order)</li>
 <li><code>days_in_transit</code> must be less than or equal to <code>days_to_deliver</code></li>
 <li><code>total_miles</code> must be greater than or equal to <code>distance_to_destination_mi</code></li>

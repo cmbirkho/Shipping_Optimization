@@ -92,6 +92,7 @@ str(orderData)
 #### Optimize Shipping Service by Carrier
 * In this function we are breaking down serviceData by each carrier and using linear programming to choose the optimal shipping service per the order per the carrier. In the next function we will compare all the optimal shipping service options for each order and choose the best service per the order based on any additional constraints we set.
 * In the `shipping.opt.carrier` function we have the following constraints:
+    * Minimize `cost_per_package`
     * Must choose one service (i.e. can't choose a mix of services for one order)
     * `days_in_transit` must be less than or equal to `days_to_deliver`
     * `total_miles` must be greater than or equal to `distance_to_destination_mi`

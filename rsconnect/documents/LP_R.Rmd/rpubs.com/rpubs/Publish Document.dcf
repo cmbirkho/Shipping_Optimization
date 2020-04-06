@@ -1,0 +1,10 @@
+name: Publish Document
+title:
+username:
+account: rpubs
+server: rpubs.com
+hostUrl: rpubs.com
+appId: https://api.rpubs.com/api/v1/document/595720/6b00dd2679c44c27b1c9517bc277d475
+bundleId: https://api.rpubs.com/api/v1/document/595720/6b00dd2679c44c27b1c9517bc277d475
+url: http://rpubs.com/cmbirkho/595720
+when: 1586208665.37114
